@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI アバタースタジオ v3 — 画像が動く</title>
+  <meta name="description" content="写真＋音声でリアルなリップシンク動画を生成。SadTalker × ElevenLabs/VOICEVOX。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:       #080812;
+      --surface:  #10101e;
+      --surface2: #18182c;
+      --border:   rgba(255,255,255,0.07);
+      --grad:     linear-gradient(135deg,#6d28d9,#1d4ed8);
+      --grad2:    linear-gradient(135deg,#0ea5e9,#6d28d9);
+      --primary:  #7c3aed;
+      --accent:   #0ea5e9;
+      --success:  #10b981;
+      --error:    #ef4444;
+      --warn:     #f59e0b;
+      --text-1:   #f1f5f9;
+      --text-2:   #94a3b8;
+      --text-3:   #475569;
+      --radius:   14px;
+      --glow-p:   rgba(109,40,217,.3);
+      --glow-a:   rgba(14,165,233,.2);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter','Noto Sans JP',sans-serif; background: var(--bg); color: var(--text-1); min-height: 100vh; overflow-x: hidden; }
+
+    /* BG effects */
+    .glow { position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: 0; }
+    .glow-1 { width:600px;height:600px;top:-150px;left:-150px;background:rgba(109,40,217,.15); }
+    .glow-2 { width:500px;height:500px;bottom:-100px;right:-100px;background:rgba(14,165,233,.1); }
+    canvas#px { position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0; }
+
+    .app { position:relative;z-index:1;max-width:1060px;margin:0 auto;padding:18px 16px 80px; }
+
+    /* Header */
+    .header {
+      display:flex;align-items:center;justify-content:space-between;
+      padding:14px 20px;margin-bottom:24px;
+      background:rgba(16,16,30,.9);border:1px solid var(--border);
+      border-radius:16px;backdrop-filter:blur(24px);
+    }
+    .logo { display:flex;align-items:center;gap:12px; }
+    .logo-orb {
+      width:34px;height:34px;border-radius:10px;
+      background:var(--grad);box-shadow:0 0 20px var(--glow-p);
+    }
+    .logo-text { font-size:1.1rem;font-weight:800;letter-spacing:-.3px; }
+    .logo-accent { background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent; }
+    .version-badge {
+      font-size:.68rem;font-weight:700;padding:3px 9px;border-radius:20px;
+      background:var(--grad);color:#fff;letter-spacing:.5px;margin-left:4px;
+    }
+    .header-right { display:flex;align-items:center;gap:10px; }
+    .btn-sm-ghost {
+      padding:6px 12px;border-radius:8px;font-size:.8rem;font-weight:600;
+      border:1px solid var(--border);background:rgba(255,255,255,.04);
+      color:var(--text-2);cursor:pointer;font-family:inherit;transition:all .2s;text-decoration:none;
+      display:inline-flex;align-items:center;gap:5px;
+    }
+    .btn-sm-ghost:hover{background:rgba(255,255,255,.08);color:var(--text-1);}
+
+    /* API Setup bar */
+    .setup-bar {
+      background:rgba(16,16,30,.9);border:1px solid var(--border);
+      border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;
+      backdrop-filter:blur(20px);
+    }
+    .setup-title { font-size:.82rem;font-weight:700;color:var(--text-2);margin-bottom:12px; }
+    .setup-grid { display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end; }
+    @media(max-width:600px){ .setup-grid{grid-template-columns:1fr;} }
+    .field-group label { display:block;font-size:.73rem;color:var(--text-3);margin-bottom:5px;font-weight:600; }
+    .text-input {
+      width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);
+      border-radius:9px;color:var(--text-1);font-size:.85rem;padding:9px 13px;
+      font-family:inherit;outline:none;transition:border-color .2s;
+    }
+    .text-input:focus{border-color:var(--primary);}
+    .text-input::placeholder{color:var(--text-3);}
+    textarea.text-input{resize:vertical;}
+
+    /* Buttons */
+    .btn {
+      display:inline-flex;align-items:center;justify-content:center;gap:7px;
+      border:none;border-radius:10px;font-family:inherit;font-weight:700;
+      cursor:pointer;transition:all .2s;text-decoration:none;white-space:nowrap;
+    }
+    .btn-primary{background:var(--grad);color:#fff;padding:11px 22px;font-size:.92rem;box-shadow:0 4px 20px var(--glow-p);}
+    .btn-primary:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 28px var(--glow-p);}
+    .btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+    .btn-ghost{background:rgba(255,255,255,.05);color:var(--text-2);border:1px solid var(--border);padding:9px 16px;font-size:.84rem;}
+    .btn-ghost:hover{background:rgba(255,255,255,.09);color:var(--text-1);}
+    .btn-save{padding:9px 18px;background:var(--grad);color:#fff;font-size:.84rem;}
+
+    /* Main grid */
+    .grid { display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start; }
+    @media(max-width:700px){ .grid{grid-template-columns:1fr;} }
+
+    /* Card */
+    .card {
+      background:rgba(16,16,30,.9);border:1px solid var(--border);
+      border-radius:var(--radius);backdrop-filter:blur(20px);padding:20px;margin-bottom:14px;
+    }
+    .card-title{font-size:.95rem;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+    .form-group{margin-bottom:14px;}
+    .form-label{display:block;font-size:.78rem;font-weight:600;color:var(--text-2);margin-bottom:7px;}
+
+    /* Upload zone */
+    .upload-zone {
+      border:2px dashed var(--border);border-radius:12px;min-height:156px;
+      display:flex;align-items:center;justify-content:center;cursor:pointer;
+      transition:all .2s;position:relative;overflow:hidden;
+    }
+    .upload-zone:hover,.upload-zone.drag{border-color:var(--primary);background:rgba(109,40,217,.05);}
+    .upload-zone.has-file{border-style:solid;border-color:rgba(109,40,217,.4);}
+    .upload-inner{text-align:center;padding:16px;}
+    .upload-icon{font-size:2.2rem;display:block;margin-bottom:8px;}
+    .upload-title{font-size:.88rem;font-weight:600;margin-bottom:4px;}
+    .upload-hint{font-size:.73rem;color:var(--text-3);margin-top:8px;}
+    .upload-preview{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;}
+
+    /* TTS mode tabs */
+    .tabs{display:flex;gap:6px;margin-bottom:14px;}
+    .tab{
+      flex:1;padding:8px 6px;border-radius:8px;font-size:.8rem;font-weight:700;
+      border:1px solid var(--border);background:transparent;color:var(--text-2);
+      cursor:pointer;transition:all .2s;font-family:inherit;text-align:center;
+    }
+    .tab.active{background:var(--grad);color:#fff;border-color:transparent;}
+
+    /* Voice grid */
+    .voice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px;}
+    .voice-card{
+      border:1px solid var(--border);border-radius:10px;padding:9px 6px;
+      text-align:center;cursor:pointer;transition:all .2s;background:rgba(255,255,255,.02);
+    }
+    .voice-card:hover{border-color:var(--primary);background:rgba(109,40,217,.08);}
+    .voice-card.sel{border-color:var(--primary);background:rgba(109,40,217,.15);box-shadow:0 0 0 2px rgba(109,40,217,.25);}
+    .voice-avatar{font-size:1.3rem;margin-bottom:3px;}
+    .voice-name{font-size:.76rem;font-weight:700;}
+    .voice-sub{font-size:.65rem;color:var(--text-3);margin-top:2px;}
+
+    /* VOICEVOX status */
+    .vv-status {
+      display:flex;align-items:center;gap:8px;font-size:.76rem;
+      padding:8px 12px;border-radius:8px;margin-bottom:10px;
+      background:rgba(255,255,255,.03);border:1px solid var(--border);
+    }
+    .vv-dot{width:8px;height:8px;border-radius:50%;background:var(--text-3);}
+    .vv-dot.ok{background:var(--success);}
+    .vv-dot.ng{background:var(--error);}
+
+    /* Rec */
+    .rec-btn{
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+      width:66px;height:66px;border-radius:50%;
+      background:rgba(239,68,68,.12);border:2px solid rgba(239,68,68,.35);
+      cursor:pointer;font-family:inherit;transition:all .2s;margin:0 auto 10px;
+    }
+    .rec-btn.recording{background:rgba(239,68,68,.28);border-color:#ef4444;animation:rp 1s ease-in-out infinite;}
+    @keyframes rp{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 0 0 10px rgba(239,68,68,0)}}
+    .rec-icon{font-size:1.4rem;}.rec-lbl{font-size:.62rem;color:var(--text-2);font-weight:700;}
+    .rec-row{display:flex;align-items:center;gap:8px;justify-content:center;font-size:.8rem;color:var(--text-2);margin-bottom:8px;}
+    .rec-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;opacity:.3;}
+    .rec-dot.on{opacity:1;animation:blink 1s infinite;}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+    audio.playback{width:100%;margin-top:8px;border-radius:8px;}
+
+    /* Settings row */
+    .settings-row{display:flex;gap:8px;margin-bottom:14px;}
+    .quality-card{
+      flex:1;border:1px solid var(--border);border-radius:10px;padding:9px 6px;
+      text-align:center;cursor:pointer;font-size:.78rem;font-weight:600;
+      color:var(--text-2);background:rgba(255,255,255,.02);transition:all .2s;
+    }
+    .quality-card:hover{border-color:var(--accent);}
+    .quality-card.sel{border-color:var(--accent);background:rgba(14,165,233,.1);color:var(--text-1);}
+    .quality-icon{font-size:1.2rem;display:block;margin-bottom:3px;}
+
+    /* Char count */
+    .char-count{float:right;font-size:.72rem;color:var(--text-3);}
+    .char-count.warn{color:var(--warn);}.char-count.over{color:var(--error);}
+
+    /* Generate button */
+    .gen-btn{width:100%;padding:14px;font-size:1rem;font-weight:800;border-radius:12px;
+      background:var(--grad);color:#fff;border:none;cursor:pointer;font-family:inherit;
+      transition:all .2s;box-shadow:0 4px 24px var(--glow-p);
+      display:flex;align-items:center;justify-content:center;gap:10px;
+    }
+    .gen-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 32px var(--glow-p);}
+    .gen-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+
+    /* Progress */
+    .progress-card{margin-top:14px;}
+    .gen-steps{display:flex;flex-direction:column;gap:7px;margin-bottom:14px;}
+    .step{
+      display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;
+      font-size:.81rem;color:var(--text-3);background:rgba(255,255,255,.02);border:1px solid transparent;transition:all .3s;
+    }
+    .step::before{content:'○';font-size:.85rem;min-width:16px;}
+    .step.active{color:var(--primary);border-color:rgba(109,40,217,.3);background:rgba(109,40,217,.08);}
+    .step.active::before{content:'⏳';}
+    .step.done{color:var(--success);border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.06);}
+    .step.done::before{content:'✅';}
+    .step.error{color:var(--error);border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.06);}
+    .step.error::before{content:'❌';}
+    .progress-wrap{display:flex;align-items:center;gap:10px;}
+    .progress-track{flex:1;height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;}
+    .progress-bar{height:100%;width:0;background:var(--grad);border-radius:3px;transition:width .5s ease;}
+    .progress-label{font-size:.76rem;color:var(--text-2);min-width:34px;text-align:right;}
+
+    /* Preview pane */
+    .preview-card.sticky { position:sticky;top:18px; }
+    .preview-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+    .preview-label{font-size:.8rem;font-weight:700;color:var(--text-2);}
+    .status-pill{font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;background:rgba(255,255,255,.07);color:var(--text-2);}
+    .status-pill.gen{background:rgba(109,40,217,.2);color:#a78bfa;}
+    .status-pill.done{background:rgba(16,185,129,.2);color:#6ee7b7;}
+    .status-pill.err{background:rgba(239,68,68,.2);color:#fca5a5;}
+    .preview-viewport{
+      aspect-ratio:9/16;background:rgba(0,0,0,.5);border-radius:12px;overflow:hidden;
+      position:relative;display:flex;align-items:center;justify-content:center;
+      border:1px solid var(--border);margin-bottom:12px;
+    }
+    .preview-empty{text-align:center;color:var(--text-3);}
+    .preview-empty-icon{font-size:3rem;display:block;margin-bottom:10px;}
+    .prev-img,.prev-video{width:100%;height:100%;object-fit:cover;}
+    .prev-img.hidden,.prev-video.hidden{display:none;}
+    .gen-overlay{
+      position:absolute;inset:0;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:10px;
+      background:rgba(8,8,18,.82);backdrop-filter:blur(8px);color:var(--text-2);font-size:.82rem;
+    }
+    .gen-overlay.hidden{display:none;}
+    .overlay-spinner{width:40px;height:40px;border-radius:50%;border:3px solid rgba(109,40,217,.2);border-top-color:var(--primary);animation:spin .8s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* Result actions */
+    .result-actions{display:flex;flex-direction:column;gap:8px;}
+
+    /* Info banner */
+    .info-banner{
+      display:flex;gap:10px;align-items:flex-start;padding:10px 13px;
+      background:rgba(14,165,233,.07);border:1px solid rgba(14,165,233,.18);
+      border-radius:10px;font-size:.78rem;color:var(--text-2);margin-bottom:12px;
+    }
+    .info-banner strong{color:var(--accent);}
+
+    /* Toasts */
+    #toastContainer{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;}
+    .toast{
+      display:flex;align-items:center;gap:8px;padding:11px 16px;
+      border-radius:10px;font-size:.83rem;background:var(--surface2);
+      border:1px solid var(--border);box-shadow:0 8px 24px rgba(0,0,0,.5);
+      animation:tin .3s ease;
+    }
+    @keyframes tin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+    .toast-success{border-color:rgba(16,185,129,.3);}
+    .toast-error{border-color:rgba(239,68,68,.3);}
+    .toast-info{border-color:rgba(14,165,233,.3);}
+
+    /* Wave canvas */
+    .wave-canvas{width:100%;height:50px;border-radius:8px;background:rgba(0,0,0,.2);margin-bottom:8px;}
+  </style>
+</head>
+<body>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+  <canvas id="px"></canvas>
+  <div id="toastContainer"></div>
+
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <div class="logo-orb"></div>
+        <span class="logo-text">AI<span class="logo-accent">分身</span>スタジオ</span>
+        <span class="version-badge">v3 · OmniHuman</span>
+      </div>
+      <div class="header-right">
+        <a href="http://localhost:3000" class="btn-sm-ghost">← D-ID版 (v2)</a>
+      </div>
+    </header>
+
+    <!-- API Setup bar -->
+    <div class="setup-bar">
+      <div class="setup-title">⚙️ APIキー設定</div>
+      <div class="setup-grid">
+        <div class="field-group">
+          <label>🔮 fal.ai APIキー <span style="color:var(--error)">必須</span></label>
+          <input type="password" id="falKeyInput" class="text-input" placeholder="fal.ai APIキーを貼り付け..." autocomplete="off">
+        </div>
+        <div class="field-group">
+          <label>🎤 ElevenLabs APIキー <span style="color:var(--text-3)">任意</span></label>
+          <input type="password" id="elKeyInput" class="text-input" placeholder="ElevenLabsキー（任意）" autocomplete="off">
+        </div>
+        <button class="btn btn-save" id="saveKeys">保存</button>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid">
+
+      <!-- LEFT -->
+      <div>
+
+        <!-- Step 1: Image -->
+        <div class="card">
+          <div class="card-title">📸 顔写真をアップロード</div>
+          <div class="info-banner">
+            <span>💡</span>
+            <div><strong>OmniHuman v1.5</strong>：写真1枚から、顔・首・体・ジェスチャーが音声に合わせて自然に動く全身アニメーション動画を生成します。「顔だけ」ではなく全身が動きます。</div>
+          </div>
+          <div class="upload-zone" id="imgZone">
+            <div class="upload-inner">
+              <span class="upload-icon">🖼️</span>
+              <p class="upload-title">写真をドラッグ＆ドロップ</p>
+              <p style="font-size:.78rem;color:var(--text-3);margin:4px 0 10px">または</p>
+              <label class="btn btn-ghost" style="padding:7px 14px;font-size:.82rem" for="imgInput">ファイルを選択</label>
+              <input type="file" id="imgInput" accept="image/jpeg,image/png,image/webp" hidden>
+              <p class="upload-hint">JPG / PNG / WEBP • 正面向きの顔写真が最適</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Voice -->
+        <div class="card">
+          <div class="card-title">🎤 音声設定</div>
+          <div class="tabs">
+            <button class="tab active" id="tabEl">✨ ElevenLabs</button>
+            <button class="tab" id="tabVV">🎵 VOICEVOX</button>
+            <button class="tab" id="tabRec">🎙️ 録音</button>
+          </div>
+
+          <!-- ElevenLabs panel -->
+          <div id="panelEl">
+            <div class="form-group">
+              <div class="form-label">声を選択 <span id="elBadge" style="font-size:.7rem;color:var(--accent);margin-left:6px"></span></div>
+              <div class="voice-grid" id="elVoiceGrid">
+                <div style="grid-column:1/-1;text-align:center;color:var(--text-3);font-size:.8rem;padding:12px">
+                  ElevenLabsキーを入力・保存すると声が表示されます
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                💬 セリフ（日本語）
+                <span class="char-count" id="charCount">0 / 500</span>
+              </label>
+              <textarea id="scriptInput" class="text-input" rows="4" maxlength="500"
+                placeholder="例：みなさんこんにちは！今日は新しいコレクションをご紹介します✨"></textarea>
+            </div>
+          </div>
+
+          <!-- VOICEVOX panel -->
+          <div id="panelVV" style="display:none">
+            <div class="vv-status" id="vvStatus">
+              <div class="vv-dot" id="vvDot"></div>
+              <span id="vvStatusText">VOICEVOXを確認中...</span>
+            </div>
+            <div class="form-group">
+              <div class="form-label">キャラクター選択</div>
+              <div class="voice-grid" id="vvVoiceGrid">
+                <div style="grid-column:1/-1;text-align:center;color:var(--text-3);font-size:.8rem;padding:12px">
+                  VOICEVOXを起動してから「確認」を押してください
+                </div>
+              </div>
+              <button class="btn btn-ghost" id="vvCheckBtn" style="margin-top:8px;width:100%;font-size:.82rem">
+                🔄 VOICEVOX接続確認
+              </button>
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                💬 セリフ（日本語）
+                <span class="char-count" id="charCountVV">0 / 500</span>
+              </label>
+              <textarea id="scriptInputVV" class="text-input" rows="4" maxlength="500"
+                placeholder="例：みなさんこんにちは！今日は新しいコレクションをご紹介します✨"></textarea>
+            </div>
+          </div>
+
+          <!-- Recording panel -->
+          <div id="panelRec" style="display:none">
+            <canvas id="waveCanvas" class="wave-canvas"></canvas>
+            <div class="rec-row">
+              <div class="rec-dot" id="recDot"></div>
+              <span id="recTimer">00:00</span>
+              <span style="font-size:.74rem;color:var(--text-3)" id="recStatus">録音待機中</span>
+            </div>
+            <button class="rec-btn" id="recBtn">
+              <span class="rec-icon">🎙️</span>
+              <span class="rec-lbl">録音開始</span>
+            </button>
+            <div id="recPlayback" style="display:none">
+              <audio id="recAudio" controls class="playback"></audio>
+              <button class="btn btn-ghost" id="reRecBtn" style="width:100%;margin-top:8px;font-size:.8rem">🔄 録り直す</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Quality -->
+        <div class="card">
+          <div class="card-title">⚙️ 品質設定</div>
+
+          <!-- 解像度 -->
+          <div class="form-group">
+            <label class="form-label">🖼️ 解像度 <span style="font-size:.68rem;color:var(--text-3)">（1080pは音声30秒以内推奨）</span></label>
+            <div class="settings-row" id="qualityGrid">
+              <div class="quality-card sel" data-res="256">
+                <span class="quality-icon">⚡</span>
+                720p<br><span style="font-size:.65rem;color:var(--text-3)">高速・最大60秒</span>
+              </div>
+              <div class="quality-card" data-res="512">
+                <span class="quality-icon">✨</span>
+                1080p<br><span style="font-size:.65rem;color:var(--text-3)">高品質・最大30秒</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generate -->
+        <button class="gen-btn" id="genBtn" disabled>
+          🚀 OmniHumanで全身動画を生成する
+        </button>
+
+        <!-- Progress -->
+        <div class="card progress-card" id="progressCard" style="display:none">
+          <div class="gen-steps">
+            <div class="step" id="s1">📸 画像を変換中</div>
+            <div class="step" id="s2">🎤 音声を生成中</div>
+            <div class="step" id="s3">🎵 音声を変換中</div>
+            <div class="step" id="s4">🎬 OmniHumanで全身動画生成中</div>
+            <div class="step" id="s5">✅ 完成！</div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-track"><div class="progress-bar" id="pBar"></div></div>
+            <span class="progress-label" id="pLabel">0%</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT: Preview -->
+      <div class="card preview-card sticky">
+        <div class="preview-header">
+          <span class="preview-label">プレビュー</span>
+          <span class="status-pill" id="statusPill">待機中</span>
+        </div>
+        <div class="preview-viewport" id="prevViewport">
+          <div class="preview-empty" id="prevEmpty">
+            <span class="preview-empty-icon">🎭</span>
+            <p style="font-size:.8rem">写真をアップロードすると<br>ここに表示されます</p>
+          </div>
+          <img id="prevImg" class="prev-img hidden" alt="preview">
+          <video id="prevVideo" class="prev-video hidden" controls playsinline></video>
+          <div class="gen-overlay hidden" id="genOverlay">
+            <div class="overlay-spinner"></div>
+            <p>OmniHuman 処理中...</p>
+            <p id="overlayEta" style="font-size:.72rem;opacity:.6"></p>
+          </div>
+        </div>
+        <div class="result-actions" id="resultActions" style="display:none">
+          <a id="dlBtn" class="gen-btn" style="text-decoration:none" download="sadtalker-avatar.mp4">
+            ⬇️ 動画をダウンロード
+          </a>
+          <button class="btn btn-ghost" id="makeAnotherBtn" style="width:100%">🔄 もう一度作る</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
