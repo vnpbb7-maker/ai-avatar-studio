@@ -402,35 +402,43 @@ const server = http.createServer((req, res) => {
           return jsonRes(res, 200, { status: 'FAILED', error: errMsg });
         }
 
-        // ── COMPLETED → 動画URLを取得 ──
+        // ── COMPLETED → 動画URLを取得（デッドライン無視：この取得が最重要） ──
         if (falStatus === 'COMPLETED') {
           console.log('[status] COMPLETED — keys:', Object.keys(sData).join(','));
           console.log('[status] COMPLETED — body:', JSON.stringify(sData).slice(0, 600));
           let videoUrl = deepFindVideoUrl(sData);
 
-          // sData内に動画URLがない → response_url を試行
-          if (!videoUrl && !isOverDeadline()) {
+          // response_url を使って結果を取得（fal.ai公式の取得方法）
+          if (!videoUrl) {
             const respUrl = responseUrl || sData.response_url;
             if (respUrl) {
-              try {
-                console.log(`[status] response_url: GET ${respUrl.slice(0,80)}`);
-                const rr = await doGet(respUrl);
-                console.log(`[status] response_url → HTTP ${rr.status} body: ${rr.body.slice(0,200)}`);
-                if (rr.status === 200) {
-                  let rd; try { rd = JSON.parse(rr.body); } catch(e) { rd = null; }
-                  if (rd) videoUrl = deepFindVideoUrl(rd);
-                }
-              } catch(e) { console.warn('[status] response_url失敗:', e.message); }
+              // response_url そのままと、/response サフィックス付きの両方を試行
+              const urlsToTry = [respUrl];
+              if (!respUrl.endsWith('/response')) urlsToTry.push(respUrl + '/response');
+
+              for (const tryUrl of urlsToTry) {
+                if (videoUrl) break;
+                try {
+                  console.log(`[status] response_url: GET ${tryUrl}`);
+                  const rr = await doGet(tryUrl, 15000); // 15秒タイムアウト
+                  console.log(`[status] response_url → HTTP ${rr.status} body: ${rr.body.slice(0,300)}`);
+                  if (rr.status === 200) {
+                    let rd; try { rd = JSON.parse(rr.body); } catch(e) { rd = null; }
+                    if (rd) videoUrl = deepFindVideoUrl(rd);
+                    if (videoUrl) console.log(`[status] response_urlから動画URL取得成功!`);
+                  }
+                } catch(e) { console.warn(`[status] ${tryUrl.slice(0,60)} 失敗:`, e.message); }
+              }
             }
           }
 
-          // まだ見つからない → /result を試行
-          if (!videoUrl && !isOverDeadline()) {
+          // フォールバック: /result エンドポイント
+          if (!videoUrl) {
             const resultUrl = `https://${FAL_Q}/${modelPath}/requests/${requestId}/result`;
             try {
               console.log(`[status] result: GET ${resultUrl}`);
-              const rr = await doGet(resultUrl);
-              console.log(`[status] result → HTTP ${rr.status} body: ${rr.body.slice(0,200)}`);
+              const rr = await doGet(resultUrl, 15000);
+              console.log(`[status] result → HTTP ${rr.status} body: ${rr.body.slice(0,300)}`);
               if (rr.status === 200) {
                 let rd; try { rd = JSON.parse(rr.body); } catch(e) { rd = null; }
                 if (rd) videoUrl = deepFindVideoUrl(rd);
