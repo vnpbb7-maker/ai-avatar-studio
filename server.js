@@ -243,8 +243,8 @@ const server = http.createServer((req, res) => {
           audio_url:   audioUrl,
           resolution:  options?.resolution === '512' ? '1080p' : '720p',
           turbo_mode:  false,
-          prompt:      options?.prompt || null,
         };
+        if (options?.prompt) omniInput.prompt = options.prompt;
         console.log(`[API] OmniHuman params: resolution=${omniInput.resolution} turbo=${omniInput.turbo_mode}`);
         const qBody = Buffer.from(JSON.stringify(omniInput));
 
