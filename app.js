@@ -467,22 +467,55 @@ function fileToDataURI(file) {
   });
 }
 
-// ── 音声圧縮: WAV/大きいBlobをWebM/Opusに再エンコード ─────────
-const AUDIO_MAX_BYTES = 300 * 1024; // 300KB超は圧縮
+// ── 音声WAV変換: 任意のBlobをPCM WAVに変換（fal.ai互換） ─────
+/**
+ * Float32Array (モノラル) → WAV Blob
+ */
+function float32ToWav(float32Data, sampleRate) {
+  const numSamples = float32Data.length;
+  const bytesPerSample = 2; // 16-bit PCM
+  const blockAlign = bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numSamples * bytesPerSample;
+  const bufSize = 44 + dataSize;
+  const buf = new ArrayBuffer(bufSize);
+  const view = new DataView(buf);
 
-async function compressAudioIfNeeded(blob) {
-  if (blob.size <= AUDIO_MAX_BYTES) {
-    console.log(`[audio] ${(blob.size/1024).toFixed(0)}KB — 圧縮不要`);
+  const writeStr = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);         // chunk size
+  view.setUint16(20, 1, true);          // PCM
+  view.setUint16(22, 1, true);          // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);         // bits per sample
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.max(-1, Math.min(1, float32Data[i]));
+    view.setInt16(offset, s < 0 ? s * 32768 : s * 32767, true);
+    offset += 2;
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+/**
+ * 任意のBlob → WAV Blob（16kHz モノラルに正規化）
+ * fal.ai OmniHuman はWAVが最も安定して動作する
+ */
+async function ensureWavAudio(blob) {
+  // 既にWAVならそのまま返す
+  if (blob.type === 'audio/wav' || blob.type === 'audio/x-wav') {
+    console.log(`[audio] WAVそのまま使用: ${(blob.size/1024).toFixed(0)}KB`);
     return blob;
   }
-  const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-    ? 'audio/webm;codecs=opus'
-    : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : null;
-  if (!mime) {
-    console.warn('[audio] WebM未対応 — 圧縮スキップ');
-    return blob;
-  }
-  console.log(`[audio] ${(blob.size/1024).toFixed(0)}KB → WebM再エンコード中...`);
+  console.log(`[audio] ${blob.type} (${(blob.size/1024).toFixed(0)}KB) → WAV変換中...`);
   try {
     const arrayBuf = await blob.arrayBuffer();
     const decodeCtx = new AudioContext();
@@ -497,27 +530,11 @@ async function compressAudioIfNeeded(blob) {
     src.start(0);
     const rendered = await offCtx.startRendering();
 
-    const compressed = await new Promise((resolve, reject) => {
-      const ctx2 = new AudioContext({ sampleRate: SR });
-      const dest2 = ctx2.createMediaStreamDestination();
-      const buf2 = ctx2.createBuffer(1, rendered.length, SR);
-      buf2.copyToChannel(rendered.getChannelData(0), 0);
-      const src2 = ctx2.createBufferSource();
-      src2.buffer = buf2;
-      src2.connect(dest2);
-      const chunks = [];
-      const mr = new MediaRecorder(dest2.stream, { mimeType: mime, audioBitsPerSecond: 48000 });
-      mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      mr.onstop = () => { ctx2.close(); resolve(new Blob(chunks, { type: mime })); };
-      mr.onerror = reject;
-      mr.start(100);
-      src2.start(0);
-      src2.onended = () => setTimeout(() => mr.stop(), 200);
-    });
-    console.log(`[audio] 圧縮完了: ${(blob.size/1024).toFixed(0)}KB → ${(compressed.size/1024).toFixed(0)}KB`);
-    return compressed.size < blob.size ? compressed : blob;
+    const wavBlob = float32ToWav(rendered.getChannelData(0), SR);
+    console.log(`[audio] WAV変換完了: ${(blob.size/1024).toFixed(0)}KB → ${(wavBlob.size/1024).toFixed(0)}KB (16kHz mono)`);
+    return wavBlob;
   } catch(e) {
-    console.warn('[audio] 圧縮失敗、元データ使用:', e.message);
+    console.warn('[audio] WAV変換失敗、元データ使用:', e.message);
     return blob;
   }
 }
@@ -556,11 +573,11 @@ async function startGeneration() {
     }
     setStep(D.s2,'done'); setProgress(38);
 
-    // Step 3: 音声を圧縮してbase64化
+    // Step 3: 音声をWAVに変換してbase64化
     setStep(D.s3,'active'); setProgress(42);
-    toast('🔊 音声を最適化中...', 'info');
-    const compressedAudio = await compressAudioIfNeeded(audioBlob);
-    const audioDataUrl = await fileToDataURI(new File([compressedAudio], 'audio', {type: compressedAudio.type}));
+    toast('🔊 音声をWAVに変換中...', 'info');
+    const wavAudio = await ensureWavAudio(audioBlob);
+    const audioDataUrl = await fileToDataURI(new File([wavAudio], 'audio.wav', {type: 'audio/wav'}));
     setStep(D.s3,'done'); setProgress(50);
 
     // Step 4: アップロード & SadTalker生成（直接同期API、最大10分）

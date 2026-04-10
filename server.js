@@ -81,15 +81,27 @@ function httpsPut(putUrl, contentType, fileBuf, timeoutMs = 180000) {
 
 function httpsGet(hostname, path, headers, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
-    const opts = { hostname, path, method: 'GET', headers };
-    const req = https.request(opts, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
-    });
-    req.on('error', reject);
-    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('GET timeout')); });
-    req.end();
+    function doRequest(hostname, path, redirectCount) {
+      if (redirectCount > 5) return reject(new Error('Too many redirects'));
+      const opts = { hostname, path, method: 'GET', headers };
+      const req = https.request(opts, res => {
+        // 3xx リダイレクト追従
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume();
+          try {
+            const loc = new URL(res.headers.location);
+            return doRequest(loc.hostname, loc.pathname + (loc.search || ''), redirectCount + 1);
+          } catch(e) { return reject(new Error('Invalid redirect: ' + res.headers.location)); }
+        }
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
+      });
+      req.on('error', reject);
+      req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('GET timeout')); });
+      req.end();
+    }
+    doRequest(hostname, path, 0);
   });
 }
 
@@ -406,13 +418,32 @@ const server = http.createServer((req, res) => {
         if (falStatus === 'COMPLETED') {
           console.log('[status] COMPLETED — keys:', Object.keys(sData).join(','));
           console.log('[status] COMPLETED — body:', JSON.stringify(sData).slice(0, 600));
-          let videoUrl = deepFindVideoUrl(sData);
+          let videoUrl = null;
 
-          // response_url を使って結果を取得（fal.ai公式の取得方法）
+          // 最優先: /result エンドポイント（fal.ai Queue APIで最も確実）
+          const resultUrl = `https://${FAL_Q}/${modelPath}/requests/${requestId}/result`;
+          try {
+            console.log(`[status] 最優先: GET ${resultUrl}`);
+            const rr = await doGet(resultUrl, 20000);
+            console.log(`[status] /result → HTTP ${rr.status} body: ${rr.body.slice(0,300)}`);
+            if (rr.status === 200) {
+              let rd; try { rd = JSON.parse(rr.body); } catch(e) { rd = null; }
+              if (rd) {
+                // OmniHuman v1.5: { "video": { "url": "..." } }
+                if (rd.video && typeof rd.video === 'object' && typeof rd.video.url === 'string') {
+                  videoUrl = rd.video.url;
+                } else {
+                  videoUrl = deepFindVideoUrl(rd);
+                }
+              }
+              if (videoUrl) console.log('[status] /resultから動画URL取得成功!');
+            }
+          } catch(e) { console.warn('[status] /result失敗:', e.message); }
+
+          // フォールバック: response_url
           if (!videoUrl) {
             const respUrl = responseUrl || sData.response_url;
             if (respUrl) {
-              // response_url そのままと、/response サフィックス付きの両方を試行
               const urlsToTry = [respUrl];
               if (!respUrl.endsWith('/response')) urlsToTry.push(respUrl + '/response');
 
@@ -420,31 +451,26 @@ const server = http.createServer((req, res) => {
                 if (videoUrl) break;
                 try {
                   console.log(`[status] response_url: GET ${tryUrl}`);
-                  const rr = await doGet(tryUrl, 15000); // 15秒タイムアウト
+                  const rr = await doGet(tryUrl, 15000);
                   console.log(`[status] response_url → HTTP ${rr.status} body: ${rr.body.slice(0,300)}`);
                   if (rr.status === 200) {
                     let rd; try { rd = JSON.parse(rr.body); } catch(e) { rd = null; }
-                    if (rd) videoUrl = deepFindVideoUrl(rd);
-                    if (videoUrl) console.log(`[status] response_urlから動画URL取得成功!`);
+                    if (rd) {
+                      if (rd.video && typeof rd.video === 'object' && typeof rd.video.url === 'string') {
+                        videoUrl = rd.video.url;
+                      } else {
+                        videoUrl = deepFindVideoUrl(rd);
+                      }
+                    }
+                    if (videoUrl) console.log('[status] response_urlから動画URL取得成功!');
                   }
                 } catch(e) { console.warn(`[status] ${tryUrl.slice(0,60)} 失敗:`, e.message); }
               }
             }
           }
 
-          // フォールバック: /result エンドポイント
-          if (!videoUrl) {
-            const resultUrl = `https://${FAL_Q}/${modelPath}/requests/${requestId}/result`;
-            try {
-              console.log(`[status] result: GET ${resultUrl}`);
-              const rr = await doGet(resultUrl, 15000);
-              console.log(`[status] result → HTTP ${rr.status} body: ${rr.body.slice(0,300)}`);
-              if (rr.status === 200) {
-                let rd; try { rd = JSON.parse(rr.body); } catch(e) { rd = null; }
-                if (rd) videoUrl = deepFindVideoUrl(rd);
-              }
-            } catch(e) { console.warn('[status] result失敗:', e.message); }
-          }
+          // 最後の手段: statusレスポンス自体を探索
+          if (!videoUrl) videoUrl = deepFindVideoUrl(sData);
 
           if (videoUrl) {
             console.log(`[status] 動画URL取得成功: ${videoUrl.slice(0,80)}`);
