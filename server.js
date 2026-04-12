@@ -295,8 +295,20 @@ const server = http.createServer((req, res) => {
         }
 
         if (qRes.status >= 400) {
-          console.error('[API] OmniHuman送信失敗レスポンス:', qRes.body.slice(0, 500));
-          throw new Error(`OmniHuman送信失敗 (${qRes.status}): ${qRes.body.slice(0, 300)}`);
+          let falErrMsg = qRes.body.slice(0, 300);
+          try {
+            const parsed = JSON.parse(qRes.body);
+            falErrMsg = parsed.detail || parsed.message || parsed.error || falErrMsg;
+          } catch(_){}
+          console.error('[API] OmniHuman送信失敗 レスポンス:', qRes.body.slice(0, 500));
+          console.error('[API] omniInput snapshot:', JSON.stringify({
+            hasImage:     !!omniInput.image_url,
+            hasAudio:     !!omniInput.audio_url,
+            hasMask:      !!omniInput.mask_url,
+            promptLength: (omniInput.prompt || '').length,
+            resolution:   omniInput.resolution,
+          }));
+          throw new Error(`OmniHuman送信失敗 (${qRes.status}): ${falErrMsg}`);
         }
 
         let qData;
@@ -317,8 +329,23 @@ const server = http.createServer((req, res) => {
         });
 
       } catch(err) {
-        console.error('[API] エラー:', err.message);
-        jsonRes(res, 500, { error: err.message });
+        // 詳細エラーログ（デバッグ用）
+        console.error('=== FAL API ERROR ===');
+        console.error('Message:', err.message);
+        console.error('Stack:', err.stack ? err.stack.split('\n')[1] : 'n/a');
+        // omniInputが定義済みならスナップショットを出力
+        const snap = typeof omniInput !== 'undefined' ? {
+          hasImage:     !!omniInput.image_url,
+          hasAudio:     !!omniInput.audio_url,
+          hasMask:      !!omniInput.mask_url,
+          promptLength: (omniInput.prompt || '').length,
+          resolution:   omniInput.resolution,
+        } : { note: 'omniInput not yet defined when error occurred' };
+        console.error('Request snapshot:', JSON.stringify(snap));
+        jsonRes(res, 500, {
+          error: err.message,
+          requestSnapshot: snap,
+        });
       }
     })();
     return;

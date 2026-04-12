@@ -500,10 +500,13 @@ const CAMERA_CLAUSES = {
   'orbital': 'Camera performs a slow orbital movement from front to three-quarter view',
 };
 
+const MAX_PROMPT_LENGTH = 500; // fal.ai OmniHuman v1.5 の安全上限
+
 /**
  * Build the final prompt string from current state.
  * For 'custom' preset, returns undefined so the API field is omitted.
  * Always prepends SAFETY_PROMPT_PREFIX to keep animals/identity stable.
+ * Truncates to MAX_PROMPT_LENGTH to prevent API rejection.
  */
 function buildPrompt() {
   if (state.promptPreset === 'custom') return undefined;
@@ -523,7 +526,10 @@ function buildPrompt() {
   if (cam) parts.push(cam);
 
   const userPart = parts.filter(Boolean).join('. ');
-  return SAFETY_PROMPT_PREFIX + userPart;
+  const combined = SAFETY_PROMPT_PREFIX + userPart;
+  return combined.length > MAX_PROMPT_LENGTH
+    ? combined.substring(0, MAX_PROMPT_LENGTH)
+    : combined;
 }
 
 /** Sync the textarea with the current control state (unless user edited manually). */
@@ -533,22 +539,30 @@ function updatePromptPreview() {
   D.promptPreview.value = buildPrompt();
 }
 
-/** Get the effective prompt to send to the API. */
+/** Get the effective prompt to send to the API (max MAX_PROMPT_LENGTH chars). */
 function getEffectivePrompt() {
+  let result;
   if (state.promptPreset === 'custom') {
     const t = D.promptPreview.value.trim();
-    if (t.length === 0) return SAFETY_PROMPT_PREFIX.trim();  // custom空を1時も安全プレフィックスは送る
-    // カスタム内容にもSAFETYプレフィックスを付加（まだ付いていない場合のみ）
-    if (!t.startsWith('Only the human person')) return SAFETY_PROMPT_PREFIX + t;
-    return t;
-  }
-  // ユーザーがプレビューを直接編集した場合，そのテキストをそのまま使う（ユーザーが意図的に編集済み）
-  if (state.promptUserEdited) {
+    if (t.length === 0) {
+      result = SAFETY_PROMPT_PREFIX.trim();
+    } else if (!t.startsWith('Only the human person')) {
+      result = SAFETY_PROMPT_PREFIX + t;
+    } else {
+      result = t;
+    }
+  } else if (state.promptUserEdited) {
     const t = D.promptPreview.value.trim();
-    return t.length > 0 ? t : SAFETY_PROMPT_PREFIX.trim();
+    result = t.length > 0 ? t : SAFETY_PROMPT_PREFIX.trim();
+  } else {
+    const p = buildPrompt();
+    result = (p && p.trim().length > 0) ? p : SAFETY_PROMPT_PREFIX.trim();
   }
-  const p = buildPrompt();
-  return (p && p.trim().length > 0) ? p : SAFETY_PROMPT_PREFIX.trim();
+  // 必ず500文字以内に収める（fal.ai API拒否防止）
+  if (result && result.length > MAX_PROMPT_LENGTH) {
+    result = result.substring(0, MAX_PROMPT_LENGTH);
+  }
+  return result;
 }
 
 /** Initialize prompt panel on page load. */
@@ -886,9 +900,12 @@ async function generateVVAudio(text, speaker) {
 async function submitSadTalker(imageDataUrl, audioDataUrl) {
   const falKey = sanitizeKey(state.falKey);
   const prompt = getEffectivePrompt();
-  console.log('[SadTalker] POST /api/generate (画像+音声アップロード→SadTalker送信)');
-  console.log('[SadTalker] prompt:', prompt ? prompt.slice(0, 80) + (prompt.length > 80 ? '...' : '') : '(omitted)');
-  console.log('[SadTalker] mask:', state.maskDataUrl ? '設定あり' : 'なし');
+  console.log('[SadTalker] POST /api/generate (画像+音声アップロード→OmniHuman送信)');
+  console.log('[SadTalker] prompt length:', prompt ? prompt.length : 0, '/ max', MAX_PROMPT_LENGTH);
+  console.log('[SadTalker] prompt preview:', prompt ? prompt.slice(0, 100) + (prompt.length > 100 ? '...' : '') : '(none)');
+  console.log('[SadTalker] mask:', state.maskDataUrl ? '設定あり (~' + Math.round(state.maskDataUrl.length*3/4/1024) + 'KB)' : 'なし');
+
+  // リクエストbody組み立て：必ずnull/undefinedが混入しないよう存在チェックしてから追加
   const body = {
     falKey,
     imageDataUrl,
@@ -897,8 +914,17 @@ async function submitSadTalker(imageDataUrl, audioDataUrl) {
       resolution: state.resolution,
     },
   };
-  if (prompt !== undefined) body.options.prompt = prompt;
-  if (state.maskDataUrl)  body.maskDataUrl = state.maskDataUrl;
+  // prompt: 空でない文字列の時のみ付加
+  if (typeof prompt === 'string' && prompt.length > 0) body.options.prompt = prompt;
+  // mask: 実在する有効なdata URIの時のみ付加（undefined/null/空で1切混入しない）
+  if (typeof state.maskDataUrl === 'string' && state.maskDataUrl.startsWith('data:')) {
+    body.maskDataUrl = state.maskDataUrl;
+  }
+  console.log('[SadTalker] request snapshot:', JSON.stringify({
+    resolution: body.options.resolution,
+    promptLength: (body.options.prompt || '').length,
+    hasMask: !!body.maskDataUrl,
+  }));
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
