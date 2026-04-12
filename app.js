@@ -880,19 +880,42 @@ async function generateElAudio(text, voiceId) {
 
 // ── VOICEVOX TTS ──────────────────────────────────────────────
 async function generateVVAudio(text, speaker) {
+  console.log(`[VV] audio_query 開始: speaker=${speaker} text(${text.length}文字)="${text.slice(0,30)}..."`);
+
   // Step1: audio_query
-  const q = await fetch(`${VV_BASE}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, {method:'POST'});
-  if (!q.ok) throw new Error(`VOICEVOX audio_query失敗 (${q.status})`);
+  let q;
+  try {
+    q = await fetch(`${VV_BASE}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`, {method:'POST'});
+  } catch(e) {
+    throw new Error(`VOICEVOX audio_query 通信エラー: ${e.message}（VOICEVOXが起動していない可能性があります）`);
+  }
+  if (!q.ok) {
+    const body = await q.text().catch(()=>'');
+    throw new Error(`VOICEVOX audio_query失敗 (${q.status}): ${body.slice(0,100)}`);
+  }
   const query = await q.json();
+  console.log(`[VV] audio_query 完了 (keys: ${Object.keys(query).join(',')})`);
 
   // Step2: synthesis
-  const s = await fetch(`${VV_BASE}/synthesis?speaker=${speaker}`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(query),
-  });
-  if (!s.ok) throw new Error(`VOICEVOX synthesis失敗 (${s.status})`);
-  return await s.blob(); // WAV blob
+  console.log(`[VV] synthesis 開始: speaker=${speaker}`);
+  const t0 = Date.now();
+  let s;
+  try {
+    s = await fetch(`${VV_BASE}/synthesis?speaker=${speaker}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(query),
+    });
+  } catch(e) {
+    throw new Error(`VOICEVOX synthesis 通信エラー: ${e.message}（タイムアウトまたは接続切断）`);
+  }
+  if (!s.ok) {
+    const body = await s.text().catch(()=>'');
+    throw new Error(`VOICEVOX synthesis失敗 (${s.status}): ${body.slice(0,100)}`);
+  }
+  const blob = await s.blob();
+  console.log(`[VV] synthesis 完了: ${(blob.size/1024).toFixed(0)}KB, type="${blob.type}", ${Date.now()-t0}ms`);
+  return blob; // WAV blob
 }
 
 // ── SadTalker submit (/api/generate 経由) ─────────────────────
