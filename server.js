@@ -208,6 +208,68 @@ function proxyRequest(req, res, targetHost, targetPath, useHttp = false) {
   });
 }
 
+/**
+ * VOICEVOX 専用プロキシ。
+ * /synthesis は音声WAVファイルを返すため長いレスポンス時間がかかる。
+ * 汎用 proxyRequest の 30 秒タイムアウトで socket hang up が発生するため
+ * タイムアウトを 120 秒に延長した専用函数。
+ */
+function proxyVoicevox(req, res, targetPath) {
+  const isSynthesis = targetPath.startsWith('/synthesis');
+  const timeoutMs   = isSynthesis ? 120000 : 30000;   // synthesisは2分、その他は30秒
+
+  const chunks = [];
+  let bodySize = 0;
+
+  req.on('data', c => {
+    bodySize += c.length;
+    if (bodySize > MAX_BODY) { res.writeHead(413); res.end('too large'); req.destroy(); return; }
+    chunks.push(c);
+  });
+  req.on('end', () => {
+    if (res.destroyed || res.headersSent) return;
+    const data = Buffer.concat(chunks);
+    const headers = { ...req.headers };
+    delete headers['host']; delete headers['connection'];
+    headers['content-length'] = data.length;
+
+    const opts = {
+      hostname: '127.0.0.1',
+      port: VV_PORT,
+      path: targetPath,
+      method: req.method,
+      headers,
+      // socket自体の非アクティビティタイムアウトは設定しない（response汁が続く向き）
+    };
+
+    const proxy = http.request(opts, pRes => {
+      res.writeHead(pRes.statusCode, {
+        ...pRes.headers,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization,Accept',
+      });
+      pRes.pipe(res);
+    });
+
+    // リクエスト送信タイムアウト（VOICEVOXが応答を契始するまでの待機時間）
+    proxy.setTimeout(timeoutMs, () => {
+      proxy.destroy();
+      console.error(`[VV] proxy timeout (${timeoutMs}ms): ${targetPath}`);
+      if (!res.headersSent) res.writeHead(504);
+      res.end(JSON.stringify({ error: `VOICEVOXタイムアウト (${timeoutMs/1000}秒)。テキストを短くしてください。` }));
+    });
+    proxy.on('error', err => {
+      console.error(`[VV] proxy error: ${err.message} (path=${targetPath})`);
+      if (!res.headersSent) res.writeHead(502);
+      res.end(JSON.stringify({ error: `VOICEVOX接続エラー: ${err.message}` }));
+    });
+
+    if (data.length) proxy.write(data);
+    proxy.end();
+  });
+}
+
 /* ── サーバー ───────────────────────────────────────────────── */
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
@@ -548,9 +610,9 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* ── /vv/* → VOICEVOX ── */
+  /* ── /vv/* → VOICEVOX（タイムアウト延長版プロキシ） ── */
   if (pathname.startsWith('/vv/')) {
-    proxyRequest(req, res, '127.0.0.1', pathname.replace('/vv','') + (parsedUrl.search||''), true);
+    proxyVoicevox(req, res, pathname.replace('/vv','') + (parsedUrl.search||''));
     return;
   }
 
