@@ -267,6 +267,150 @@
 
     /* Wave canvas */
     .wave-canvas{width:100%;height:50px;border-radius:8px;background:rgba(0,0,0,.2);margin-bottom:8px;}
+
+    /* ── Prompt Panel ─────────────────────────────────── */
+    .prompt-panel {
+      background:rgba(16,16,30,.9);border:1px solid var(--border);
+      border-radius:var(--radius);backdrop-filter:blur(20px);margin-bottom:14px;
+      overflow:hidden;
+    }
+    .prompt-panel-header {
+      display:flex;align-items:center;justify-content:space-between;
+      padding:14px 18px;cursor:pointer;user-select:none;
+      transition:background .2s;
+    }
+    .prompt-panel-header:hover{background:rgba(255,255,255,.03);}
+    .prompt-panel-title{font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:8px;}
+    .prompt-panel-toggle{
+      width:26px;height:26px;border-radius:6px;
+      background:rgba(255,255,255,.07);border:1px solid var(--border);
+      display:flex;align-items:center;justify-content:center;
+      font-size:.8rem;transition:transform .3s,background .2s;
+    }
+    .prompt-panel-toggle.collapsed{transform:rotate(-90deg);}
+    .prompt-panel-body{padding:0 18px 18px;}
+
+    /* Preset select */
+    .preset-select{
+      width:100%;background:rgba(255,255,255,.05);
+      border:1px solid var(--border);border-radius:9px;
+      color:var(--text-1);font-size:.85rem;padding:10px 13px;
+      font-family:inherit;outline:none;cursor:pointer;
+      transition:border-color .2s;appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;background-position:right 13px center;
+      padding-right:36px;
+    }
+    .preset-select:focus{border-color:var(--primary);}
+    .preset-select option{background:#18182c;}
+
+    /* Control segments */
+    .ctrl-seg{
+      display:flex;gap:5px;flex-wrap:wrap;
+    }
+    .seg-btn{
+      flex:1;min-width:0;padding:7px 6px;
+      border:1px solid var(--border);border-radius:8px;
+      background:rgba(255,255,255,.03);color:var(--text-2);
+      font-size:.76rem;font-weight:600;cursor:pointer;
+      font-family:inherit;text-align:center;transition:all .17s;
+      white-space:nowrap;
+    }
+    .seg-btn:hover{border-color:var(--primary);color:var(--text-1);background:rgba(109,40,217,.06);}
+    .seg-btn.active{
+      border-color:var(--primary);background:rgba(109,40,217,.18);
+      color:#c4b5fd;box-shadow:0 0 0 1px rgba(109,40,217,.3);
+    }
+
+    /* Toggle switch */
+    .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+    .toggle-label{font-size:.83rem;color:var(--text-2);}
+    .toggle-wrap{position:relative;flex-shrink:0;}
+    .toggle-input{position:absolute;opacity:0;pointer-events:none;}
+    .toggle-track{
+      display:block;width:42px;height:24px;border-radius:12px;
+      background:rgba(255,255,255,.1);border:1px solid var(--border);
+      cursor:pointer;transition:all .2s;position:relative;
+    }
+    .toggle-input:checked + .toggle-track{background:var(--primary);border-color:var(--primary);}
+    .toggle-track::after{
+      content:'';position:absolute;top:3px;left:3px;
+      width:16px;height:16px;border-radius:50%;
+      background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);
+    }
+    .toggle-input:checked + .toggle-track::after{transform:translateX(18px);}
+
+    /* Preview textarea */
+    .prompt-preview-wrap{position:relative;}
+    .prompt-preview-textarea{
+      width:100%;min-height:90px;resize:vertical;
+      background:rgba(109,40,217,.06);border:1px solid rgba(109,40,217,.25);
+      border-radius:9px;color:var(--text-1);font-size:.78rem;
+      padding:10px 12px;font-family:inherit;outline:none;
+      transition:border-color .2s;line-height:1.55;
+    }
+    .prompt-preview-textarea:focus{border-color:var(--primary);}
+    .prompt-preview-textarea::placeholder{color:var(--text-3);}
+    .prompt-preview-actions{
+      display:flex;align-items:center;justify-content:space-between;
+      margin-top:6px;
+    }
+    .prompt-hint{font-size:.7rem;color:var(--text-3);}
+    .btn-reset-prompt{
+      padding:5px 12px;border-radius:7px;font-size:.73rem;font-weight:700;
+      border:1px solid var(--border);background:rgba(255,255,255,.04);
+      color:var(--text-3);cursor:pointer;font-family:inherit;
+      transition:all .2s;
+    }
+    .btn-reset-prompt:hover{background:rgba(255,255,255,.08);color:var(--text-1);}
+
+    .ctrl-divider{height:1px;background:var(--border);margin:14px 0;}
+
+    /* ── Image Quality Guide ────────────────────────────── */
+    .image-quality-guide {
+      padding:11px 14px;border-radius:10px;margin-bottom:14px;
+      background:rgba(14,165,233,.06);border:1px solid rgba(14,165,233,.18);
+      font-size:.75rem;
+    }
+    .image-quality-guide p { font-weight:700;color:var(--accent);margin-bottom:7px;font-size:.78rem; }
+    .image-quality-guide ul { list-style:none;display:flex;flex-direction:column;gap:4px; }
+    .image-quality-guide li { color:var(--text-2);line-height:1.45; }
+
+    /* ── Mask Upload ────────────────────────────────── */
+    .mask-upload-section {
+      margin-top:14px;padding:13px 14px;
+      background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.18);
+      border-radius:10px;
+    }
+    .mask-upload-label {
+      font-size:.78rem;font-weight:700;color:#6ee7b7;margin-bottom:5px;display:block;
+    }
+    .mask-upload-hint {
+      font-size:.72rem;color:var(--text-3);margin-bottom:10px;line-height:1.55;display:block;
+    }
+    .mask-upload-row { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+    .mask-file-label {
+      display:inline-flex;align-items:center;gap:5px;
+      padding:7px 13px;border-radius:8px;font-size:.78rem;font-weight:700;
+      background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);
+      color:#6ee7b7;cursor:pointer;font-family:inherit;transition:all .2s;
+    }
+    .mask-file-label:hover { background:rgba(16,185,129,.2);color:#a7f3d0; }
+    .btn-clear-mask {
+      padding:6px 12px;border-radius:8px;font-size:.73rem;font-weight:700;
+      border:1px solid var(--border);background:rgba(255,255,255,.04);
+      color:var(--text-3);cursor:pointer;font-family:inherit;transition:all .2s;
+      display:none;
+    }
+    .btn-clear-mask:hover { background:rgba(255,255,255,.08);color:var(--error); }
+    .mask-preview-inner {
+      display:flex;align-items:center;gap:10px;margin-top:10px;
+    }
+    .mask-ok-badge {
+      font-size:.72rem;font-weight:700;color:#6ee7b7;
+      padding:3px 9px;border-radius:20px;
+      background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);
+    }
   </style>
 </head>
 <body>
@@ -318,6 +462,21 @@
             <span>💡</span>
             <div><strong>OmniHuman v1.5</strong>：写真1枚から、顔・首・体・ジェスチャーが音声に合わせて自然に動く全身アニメーション動画を生成します。「顔だけ」ではなく全身が動きます。</div>
           </div>
+
+          <!-- 画像品質ガイド -->
+          <div class="image-quality-guide">
+            <p>📸 顔ブレを防ぐための推奨設定：</p>
+            <ul>
+              <li>✅ 顔が正面を向いている写真を使う</li>
+              <li>✅ 顔がフレームの中央に大きく写っている</li>
+              <li>✅ 明るく影のない均一な照明</li>
+              <li>✅ 解像度は512px以上</li>
+              <li>❌ 横顔・斜め顔は避ける</li>
+              <li>❌ ペットや他の人物との集合写真は避ける
+                <span style="color:var(--accent)">（どうしても使う場合はマスク画像を設定）</span></li>
+            </ul>
+          </div>
+
           <div class="upload-zone" id="imgZone">
             <div class="upload-inner">
               <span class="upload-icon">🖼️</span>
@@ -327,6 +486,20 @@
               <input type="file" id="imgInput" accept="image/jpeg,image/png,image/webp" hidden>
               <p class="upload-hint">JPG / PNG / WEBP • 正面向きの顔写真が最適</p>
             </div>
+          </div>
+
+          <!-- マスクアップロード -->
+          <div class="mask-upload-section">
+            <span class="mask-upload-label">🎭 話者マスク画像（任意・推奨）</span>
+            <span class="mask-upload-hint">
+              ペットや複数人が写っている場合は、話す人物の領域を白、それ以外を黒で塗ったマスク画像をアップロードしてください。犬や他の人物の口パクを防げます。
+            </span>
+            <div class="mask-upload-row">
+              <label class="mask-file-label" for="maskInput">🖼️ マスク画像を選択</label>
+              <input type="file" id="maskInput" accept="image/*" hidden>
+              <button class="btn-clear-mask" id="clearMask">🗑️ クリア</button>
+            </div>
+            <div id="maskPreview"></div>
           </div>
         </div>
 
@@ -422,6 +595,87 @@
                 1080p<br><span style="font-size:.65rem;color:var(--text-3)">高品質・最大30秒</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Step 4: Prompt Panel -->
+        <div class="prompt-panel" id="promptPanel">
+          <div class="prompt-panel-header" id="promptPanelHeader">
+            <div class="prompt-panel-title">🎬 動画生成プロンプト設定</div>
+            <div class="prompt-panel-toggle" id="promptToggleIcon">▾</div>
+          </div>
+          <div class="prompt-panel-body" id="promptPanelBody">
+
+            <!-- Preset -->
+            <div class="form-group">
+              <label class="form-label">🎭 プリセット</label>
+              <select class="preset-select" id="promptPreset">
+                <option value="business">ビジネス / 解説系（デフォルト）</option>
+                <option value="sns">SNS / YouTube向け</option>
+                <option value="news">ニュース / レポーター風</option>
+                <option value="custom">カスタム（自由入力）</option>
+              </select>
+            </div>
+
+            <div class="ctrl-divider"></div>
+
+            <!-- ① 口の動き -->
+            <div class="form-group">
+              <label class="form-label">👄 ① 口の動き intensity</label>
+              <div class="ctrl-seg" id="lipSeg">
+                <button class="seg-btn active" data-val="subtle">subtle<br><span style="font-size:.65rem;font-weight:400">控えめ</span></button>
+                <button class="seg-btn" data-val="natural">natural<br><span style="font-size:.65rem;font-weight:400">自然</span></button>
+                <button class="seg-btn" data-val="expressive">expressive<br><span style="font-size:.65rem;font-weight:400">大きめ</span></button>
+              </div>
+            </div>
+
+            <!-- ② 体の動き -->
+            <div class="form-group">
+              <label class="form-label">🧍 ② 体の動き level</label>
+              <div class="ctrl-seg" id="bodySeg">
+                <button class="seg-btn" data-val="static">static<br><span style="font-size:.65rem;font-weight:400">静止</span></button>
+                <button class="seg-btn active" data-val="minimal">minimal<br><span style="font-size:.65rem;font-weight:400">微動</span></button>
+                <button class="seg-btn" data-val="moderate">moderate<br><span style="font-size:.65rem;font-weight:400">適度</span></button>
+                <button class="seg-btn" data-val="dynamic">dynamic<br><span style="font-size:.65rem;font-weight:400">大きい</span></button>
+              </div>
+            </div>
+
+            <!-- ③ ジェスチャー -->
+            <div class="form-group">
+              <div class="toggle-row">
+                <span class="toggle-label">🤲 ③ ジェスチャー</span>
+                <div class="toggle-wrap">
+                  <input type="checkbox" class="toggle-input" id="gestureToggle">
+                  <label class="toggle-track" for="gestureToggle"></label>
+                </div>
+              </div>
+            </div>
+
+            <!-- ④ カメラワーク -->
+            <div class="form-group">
+              <label class="form-label">🎥 ④ カメラワーク</label>
+              <div class="ctrl-seg" id="cameraSeg">
+                <button class="seg-btn active" data-val="static">static<br><span style="font-size:.65rem;font-weight:400">固定</span></button>
+                <button class="seg-btn" data-val="push-in">push-in<br><span style="font-size:.65rem;font-weight:400">ズームイン</span></button>
+                <button class="seg-btn" data-val="orbital">orbital<br><span style="font-size:.65rem;font-weight:400">回り込み</span></button>
+              </div>
+            </div>
+
+            <div class="ctrl-divider"></div>
+
+            <!-- Preview -->
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">📝 プロンプトプレビュー（直接編集可能）</label>
+              <div class="prompt-preview-wrap">
+                <textarea id="promptPreview" class="prompt-preview-textarea" rows="5"
+                  placeholder="プロンプトがここに表示されます..."></textarea>
+              </div>
+              <div class="prompt-preview-actions">
+                <span class="prompt-hint">💡 生成時にAPIへ自動送信されます</span>
+                <button class="btn-reset-prompt" id="resetPromptBtn">↩ リセット</button>
+              </div>
+            </div>
+
           </div>
         </div>
 

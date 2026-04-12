@@ -41,6 +41,18 @@ const state = {
   animFrameId:    null,
   elVoices:       [],
   vvSpeakers:     [],
+  // prompt panel
+  promptPreset:   'business',    // 'business' | 'sns' | 'news' | 'custom'
+  promptLip:      'subtle',      // 'subtle' | 'natural' | 'expressive'
+  promptBody:     'minimal',     // 'static' | 'minimal' | 'moderate' | 'dynamic'
+  promptGesture:  false,
+  promptCamera:   'static',      // 'static' | 'push-in' | 'orbital'
+  promptPanelOpen: true,
+  // flag: true = auto-sync with controls; false = user edited manually
+  promptUserEdited: false,
+  // mask
+  maskFile:        null,
+  maskDataUrl:     null,
 };
 
 // ── DOM refs ─────────────────────────────────────────────────
@@ -66,9 +78,24 @@ const D = {
   recAudio: $('recAudio'), reRecBtn: $('reRecBtn'),
   // Image
   imgZone: $('imgZone'), imgInput: $('imgInput'),
+  // Mask
+  maskInput:   $('maskInput'),
+  clearMask:   $('clearMask'),
+  maskPreview: $('maskPreview'),
   // Quality
   // Quality
   qualityGrid: $('qualityGrid'),
+  // Prompt panel
+  promptPanelHeader: $('promptPanelHeader'),
+  promptPanelBody:   $('promptPanelBody'),
+  promptToggleIcon:  $('promptToggleIcon'),
+  promptPreset:      $('promptPreset'),
+  lipSeg:            $('lipSeg'),
+  bodySeg:           $('bodySeg'),
+  gestureToggle:     $('gestureToggle'),
+  cameraSeg:         $('cameraSeg'),
+  promptPreview:     $('promptPreview'),
+  resetPromptBtn:    $('resetPromptBtn'),
   // Gen
   genBtn: $('genBtn'),
   progressCard: $('progressCard'),
@@ -95,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initParticles();
   loadKeys();
   bindEvents();
+  initPromptPanel();
 });
 
 // APIキーをASCII printable文字のみに絞る（コピペ時の全角スペース・改行・制御文字を除去）
@@ -327,6 +355,91 @@ function bindEvents() {
   // Generate / reset
   D.genBtn.addEventListener('click', startGeneration);
   D.makeAnotherBtn.addEventListener('click', resetAll);
+
+  // ── Mask upload events ────────────────────────
+  D.maskInput.addEventListener('change', e => {
+    if (e.target.files[0]) handleMask(e.target.files[0]);
+  });
+  D.clearMask.addEventListener('click', () => {
+    state.maskFile    = null;
+    state.maskDataUrl = null;
+    D.maskInput.value = '';
+    D.maskPreview.innerHTML = '';
+    D.clearMask.style.display = 'none';
+    toast('🎭 マスクをクリアしました', 'info');
+  });
+
+  // ── Prompt Panel events ─────────────────────────
+
+  // Fold/unfold
+  D.promptPanelHeader.addEventListener('click', () => {
+    state.promptPanelOpen = !state.promptPanelOpen;
+    const body  = D.promptPanelBody;
+    const icon  = D.promptToggleIcon;
+    if (state.promptPanelOpen) {
+      body.style.display = '';
+      icon.classList.remove('collapsed');
+    } else {
+      body.style.display = 'none';
+      icon.classList.add('collapsed');
+    }
+  });
+
+  // Preset select
+  D.promptPreset.addEventListener('change', () => {
+    state.promptPreset = D.promptPreset.value;
+    state.promptUserEdited = false;
+    const isCustom = state.promptPreset === 'custom';
+    // In custom mode, unlock the textarea and keep whatever is in it
+    if (isCustom) {
+      D.promptPreview.readOnly = false;
+    } else {
+      D.promptPreview.readOnly = false;
+      updatePromptPreview();
+    }
+  });
+
+  // Segment buttons helper
+  function bindSeg(container, stateKey) {
+    container.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state[stateKey] = btn.dataset.val;
+        if (state.promptPreset !== 'custom') {
+          state.promptUserEdited = false;
+          updatePromptPreview();
+        }
+      });
+    });
+  }
+  bindSeg(D.lipSeg,    'promptLip');
+  bindSeg(D.bodySeg,   'promptBody');
+  bindSeg(D.cameraSeg, 'promptCamera');
+
+  // Gesture toggle
+  D.gestureToggle.addEventListener('change', () => {
+    state.promptGesture = D.gestureToggle.checked;
+    if (state.promptPreset !== 'custom') {
+      state.promptUserEdited = false;
+      updatePromptPreview();
+    }
+  });
+
+  // User edits textarea directly
+  D.promptPreview.addEventListener('input', () => {
+    state.promptUserEdited = true;
+  });
+
+  // Reset button
+  D.resetPromptBtn.addEventListener('click', () => {
+    state.promptUserEdited = false;
+    if (state.promptPreset === 'custom') {
+      D.promptPreview.value = '';
+    } else {
+      updatePromptPreview();
+    }
+  });
 }
 
 function setMode(mode) {
@@ -337,6 +450,111 @@ function setMode(mode) {
   if (mode==='vv')  { D.tabVV.classList.add('active');  D.panelVV.style.display=''; }
   if (mode==='rec') { D.tabRec.classList.add('active'); D.panelRec.style.display=''; }
   checkCanGenerate();
+}
+
+// ── Prompt Panel ──────────────────────────────────────────
+
+/**
+ * Safety prefix — 常に最前に付加される安全プロンプト。
+ * ペット・複数人の口パク防止＋identity drift振れ辺み防止。
+ */
+const SAFETY_PROMPT_PREFIX =
+  'Only the human person in the foreground is speaking. ' +
+  'All animals, pets, and non-human subjects in the frame ' +
+  'remain completely still and silent with closed mouths. ' +
+  "Preserve the speaker's facial identity, skin tone, and " +
+  'facial structure exactly as shown in the input image throughout ' +
+  'the entire video. No identity drift. ';
+
+// Preset base texts
+const PRESETS = {
+  business: 'A static medium shot holds steadily. The character speaks calmly and professionally with subtle, restrained lip movements and minimal mouth opening. Body remains composed and upright with only slight natural breathing movement. No exaggerated gestures. Facial expression is focused and warm, with small natural micro-expressions responding to speech rhythm.',
+  sns:      'Camera slowly pushes in from medium shot to medium close-up. The character speaks directly to camera with natural, understated lip movements. Occasional gentle head tilt, relaxed shoulder movement. Hands rise naturally at emphasis points then return to rest. Expression is warm and engaging without exaggeration.',
+  news:     'A stable, static medium shot. The character delivers speech with precise, controlled lip movements—natural and measured, never exaggerated. Upright posture, minimal body movement. Eyes engage directly with camera. Expression shifts subtly with content tone, transitioning from neutral to slight warmth as speech progresses.',
+  custom:   '',
+};
+
+// Lip movement clauses
+const LIP_CLAUSES = {
+  subtle:     'subtle lip movements, minimal mouth opening, jaw relaxed and still',
+  natural:    '',  // natural is the default in preset — no extra clause
+  expressive: 'expressive lip movements, wide mouth articulation',
+};
+
+// Body movement clauses
+const BODY_CLAUSES = {
+  static:   'static body posture, no upper body movement',
+  minimal:  'slight natural breathing motion only, no shoulder sway',
+  moderate: 'gentle organic upper body sway, occasional slight head tilt',
+  dynamic:  'animated upper body movement, expressive shoulder and torso engagement',
+};
+
+// Gesture clauses
+const GESTURE_ON  = 'measured hand gestures within chest-to-shoulder frame, hands rise naturally at key points';
+const GESTURE_OFF = 'hands remain still and out of frame';
+
+// Camera clauses
+const CAMERA_CLAUSES = {
+  'static':  'Camera: static medium shot',
+  'push-in': 'Camera slowly pushes in from medium shot to medium close-up',
+  'orbital': 'Camera performs a slow orbital movement from front to three-quarter view',
+};
+
+/**
+ * Build the final prompt string from current state.
+ * For 'custom' preset, returns undefined so the API field is omitted.
+ * Always prepends SAFETY_PROMPT_PREFIX to keep animals/identity stable.
+ */
+function buildPrompt() {
+  if (state.promptPreset === 'custom') return undefined;
+
+  const base = PRESETS[state.promptPreset] || '';
+  const parts = [base];
+
+  const lip = LIP_CLAUSES[state.promptLip];
+  if (lip) parts.push(lip);
+
+  const body = BODY_CLAUSES[state.promptBody];
+  if (body) parts.push(body);
+
+  parts.push(state.promptGesture ? GESTURE_ON : GESTURE_OFF);
+
+  const cam = CAMERA_CLAUSES[state.promptCamera];
+  if (cam) parts.push(cam);
+
+  const userPart = parts.filter(Boolean).join('. ');
+  return SAFETY_PROMPT_PREFIX + userPart;
+}
+
+/** Sync the textarea with the current control state (unless user edited manually). */
+function updatePromptPreview() {
+  if (state.promptUserEdited) return;
+  if (state.promptPreset === 'custom') return;  // leave as-is for custom
+  D.promptPreview.value = buildPrompt();
+}
+
+/** Get the effective prompt to send to the API. */
+function getEffectivePrompt() {
+  if (state.promptPreset === 'custom') {
+    const t = D.promptPreview.value.trim();
+    if (t.length === 0) return SAFETY_PROMPT_PREFIX.trim();  // custom空を1時も安全プレフィックスは送る
+    // カスタム内容にもSAFETYプレフィックスを付加（まだ付いていない場合のみ）
+    if (!t.startsWith('Only the human person')) return SAFETY_PROMPT_PREFIX + t;
+    return t;
+  }
+  // ユーザーがプレビューを直接編集した場合，そのテキストをそのまま使う（ユーザーが意図的に編集済み）
+  if (state.promptUserEdited) {
+    const t = D.promptPreview.value.trim();
+    return t.length > 0 ? t : SAFETY_PROMPT_PREFIX.trim();
+  }
+  const p = buildPrompt();
+  return (p && p.trim().length > 0) ? p : SAFETY_PROMPT_PREFIX.trim();
+}
+
+/** Initialize prompt panel on page load. */
+function initPromptPanel() {
+  // Render initial preview
+  updatePromptPreview();
 }
 
 function checkCanGenerate() {
@@ -362,6 +580,26 @@ function handleImage(file) {
   setStatus('準備完了','');
   toast('✅ 画像を読み込みました','success');
   checkCanGenerate();
+}
+
+// ── Mask ─────────────────────────────────────────────────────
+async function handleMask(file) {
+  if (!file.type.startsWith('image/')) { toast('画像ファイルを選択してください', 'error'); return; }
+  if (file.size > 10*1024*1024) { toast('10MB以下の画像を選択してください', 'error'); return; }
+  state.maskFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    state.maskDataUrl = e.target.result;
+    D.maskPreview.innerHTML = `
+      <div class="mask-preview-inner">
+        <img src="${state.maskDataUrl}" alt="mask preview" style="max-width:100%;max-height:80px;border-radius:6px;border:1px solid rgba(16,185,129,.4);">
+        <span class="mask-ok-badge">✅ マスク設定済</span>
+      </div>`;
+    D.clearMask.style.display = '';
+    toast('✅ マスク画像を読み込みました', 'success');
+  };
+  reader.onerror = () => toast('マスク画像の読み込みに失敗しました', 'error');
+  reader.readAsDataURL(file);
 }
 
 // ── Recording ─────────────────────────────────────────────────
@@ -647,18 +885,24 @@ async function generateVVAudio(text, speaker) {
 // server.js の /api/generate が画像・音声アップロード＋SadTalkerキュー送信を一括処理
 async function submitSadTalker(imageDataUrl, audioDataUrl) {
   const falKey = sanitizeKey(state.falKey);
+  const prompt = getEffectivePrompt();
   console.log('[SadTalker] POST /api/generate (画像+音声アップロード→SadTalker送信)');
+  console.log('[SadTalker] prompt:', prompt ? prompt.slice(0, 80) + (prompt.length > 80 ? '...' : '') : '(omitted)');
+  console.log('[SadTalker] mask:', state.maskDataUrl ? '設定あり' : 'なし');
+  const body = {
+    falKey,
+    imageDataUrl,
+    audioDataUrl,
+    options: {
+      resolution: state.resolution,
+    },
+  };
+  if (prompt !== undefined) body.options.prompt = prompt;
+  if (state.maskDataUrl)  body.maskDataUrl = state.maskDataUrl;
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      falKey,
-      imageDataUrl,
-      audioDataUrl,
-      options: {
-        resolution:  state.resolution,
-      },
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const t = await res.text().catch(()=>'');

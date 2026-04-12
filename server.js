@@ -227,7 +227,7 @@ const server = http.createServer((req, res) => {
     (async () => {
       try {
         const body = await readJsonBody(req);
-        const { falKey, imageDataUrl, audioDataUrl, options } = body;
+        const { falKey, imageDataUrl, audioDataUrl, maskDataUrl, options } = body;
         if (!falKey || !imageDataUrl || !audioDataUrl)
           return jsonRes(res, 400, { error: '必須項目が不足しています' });
 
@@ -247,6 +247,21 @@ const server = http.createServer((req, res) => {
         const audioUrl = await uploadToFal(audBuf, `audio.${audExt}`, audMime, falKey);
         console.log('[API] 音声URL:', audioUrl);
 
+        // マスク画像アップロード（任意）
+        let maskUrl = null;
+        if (maskDataUrl) {
+          try {
+            const maskMime = maskDataUrl.split(';')[0].split(':')[1] || 'image/png';
+            const maskExt  = maskMime.includes('jpeg') || maskMime.includes('jpg') ? 'jpg' : 'png';
+            const maskBuf  = Buffer.from(maskDataUrl.split(',')[1], 'base64');
+            console.log(`[API] マスク画像アップロード中... (${(maskBuf.length/1024).toFixed(0)}KB)`);
+            maskUrl = await uploadToFal(maskBuf, `mask.${maskExt}`, maskMime, falKey);
+            console.log('[API] マスクURL:', maskUrl);
+          } catch(e) {
+            console.warn('[API] マスク画像アップロード失敗（スキップ）:', e.message);
+          }
+        }
+
         // ── OmniHuman v1.5: 全身アニメーション（顔+体+ジェスチャー）──
         const modelEndpoint = '/fal-ai/bytedance/omnihuman/v1.5';
         const modelPath     = 'fal-ai/bytedance/omnihuman/v1.5';
@@ -257,7 +272,8 @@ const server = http.createServer((req, res) => {
           turbo_mode:  false,
         };
         if (options?.prompt) omniInput.prompt = options.prompt;
-        console.log(`[API] OmniHuman params: resolution=${omniInput.resolution} turbo=${omniInput.turbo_mode}`);
+        if (maskUrl)         omniInput.mask_url = maskUrl;
+        console.log(`[API] OmniHuman params: resolution=${omniInput.resolution} turbo=${omniInput.turbo_mode} mask=${maskUrl ? 'あり' : 'なし'}`);
         const qBody = Buffer.from(JSON.stringify(omniInput));
 
         console.log('[API] OmniHuman Queue送信中...');
